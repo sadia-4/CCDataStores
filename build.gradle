@@ -1,0 +1,33 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'org.causalstore'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Reactor Core for reactive streams
+    implementation 'io.projectreactor:reactor-core:3.6.2'
+
+    // JSON serialization for logging & metadata
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.0'
+
+    // Logging
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+
+    // For metrics or visualization later (optional)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+}
+
+application {
+    mainClass = 'causalstore.Main'
+}
+
+tasks.test {
+    useJUnitPlatform()
+}
