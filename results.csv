@@ -1,0 +1,4 @@
+experiment,operation,policy,dc,latency_ms,value
+exp2_eventual,read,causal,DC-C,2,c2
+exp2_causal,read,causal,DC-C,0,c2
+exp2_eventual,read,causal,DC-C,0,c2
