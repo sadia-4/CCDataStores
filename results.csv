@@ -1,4 +1,7 @@
 experiment,operation,policy,dc,latency_ms,value
-exp2_eventual,read,causal,DC-C,2,c2
-exp2_causal,read,causal,DC-C,0,c2
-exp2_eventual,read,causal,DC-C,0,c2
+exp3_eventual-before,read,eventual,DC-B,1,null
+exp3_causal,read,causal,DC-B,0,null
+exp3_eventual-after,read,eventual,DC-B,0,null
+exp3_causal,read,causal,DC-B,0,null
+exp3_eventual-after,read,eventual,DC-B,0,null
+exp3_eventual-before,read,eventual,DC-B,0,null

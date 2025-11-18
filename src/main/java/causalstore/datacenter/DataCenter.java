@@ -3,6 +3,7 @@ package causalstore.datacenter;
 import causalstore.core.CausalMetadata;
 import causalstore.core.CausalStoreNode;
 import causalstore.core.KeyValueStore;
+import causalstore.core.ReadResult;
 import causalstore.core.VersionVector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +27,7 @@ public class DataCenter implements CausalStoreNode {
     private final List<KeyValueStore> replicas;
     private final AtomicInteger readIndex = new AtomicInteger();
     private final Queue<PendingReplication> pendingReplicas = new ConcurrentLinkedQueue<>();
+    private final Queue<PendingLocalWrite> pendingLocalWrites = new ConcurrentLinkedQueue<>();
     private final Sinks.Many<ApplyEvent> changeSink = Sinks.many().multicast().onBackpressureBuffer();
 
     public DataCenter(String name, int delayMs) {
@@ -44,12 +46,21 @@ public class DataCenter implements CausalStoreNode {
     }
 
     @Override
-    public CausalMetadata applyWrite(String key, String value) {
+    public CausalMetadata applyWrite(String key, String value,
+                                     VersionVector dependencies,
+                                     Map<String, VersionVector> dependencyKeys) {
+        if (dependencies != null) {
+            versionVector.merge(dependencies);
+        }
         versionVector.increment(name);
-        writeToAllReplicas(key, value);
-        CausalMetadata metadata = new CausalMetadata(name, versionVector);
-        log.info("{} applied write: key={}, replicated to {} local replicas, metadata={}",
-                name, key, replicas.size(), metadata);
+        CausalMetadata metadata = new CausalMetadata(name, key, value, versionVector, dependencyKeys);
+        PendingLocalWrite pending = new PendingLocalWrite(key, value, metadata);
+        if (canApply(metadata)) {
+            applyLocalNow(pending);
+        } else {
+            pendingLocalWrites.add(pending);
+        }
+        drainPendingLocalWrites();
         drainPending();
         changeSink.tryEmitNext(new ApplyEvent(key, metadata, ApplyType.LOCAL_WRITE));
         return metadata;
@@ -61,6 +72,7 @@ public class DataCenter implements CausalStoreNode {
         if (canApply(metadata)) {
             applyReplicaNow(incoming);
             drainPending();
+            drainPendingLocalWrites();
         } else {
             pendingReplicas.add(incoming);
             log.debug("{} buffered replication for key={} because dependencies are missing (metadata={})",
@@ -68,10 +80,18 @@ public class DataCenter implements CausalStoreNode {
         }
     }
 
+    public ReadResult readWithMetadata(String key) {
+        int idx = Math.floorMod(readIndex.getAndIncrement(), replicas.size());
+        KeyValueStore.Entry entry = replicas.get(idx).get(key);
+        if (entry == null) {
+            return new ReadResult(null, null);
+        }
+        return new ReadResult(entry.value(), entry.metadata());
+    }
+
     @Override
     public String read(String key) {
-        int idx = Math.floorMod(readIndex.getAndIncrement(), replicas.size());
-        return replicas.get(idx).get(key);
+        return readWithMetadata(key).value();
     }
 
     public int getNetworkDelayMs() {
@@ -113,21 +133,51 @@ public class DataCenter implements CausalStoreNode {
         } while (progress && !pendingReplicas.isEmpty());
     }
 
+    private void drainPendingLocalWrites() {
+        if (pendingLocalWrites.isEmpty()) return;
+
+        boolean progress;
+        do {
+            progress = false;
+            List<PendingLocalWrite> deferred = new ArrayList<>();
+            PendingLocalWrite pending = pendingLocalWrites.poll();
+            while (pending != null) {
+                if (canApply(pending.metadata)) {
+                    applyLocalNow(pending);
+                    progress = true;
+                } else {
+                    deferred.add(pending);
+                }
+                pending = pendingLocalWrites.poll();
+            }
+            pendingLocalWrites.addAll(deferred);
+        } while (progress && !pendingLocalWrites.isEmpty());
+    }
+
     private void applyReplicaNow(PendingReplication pending) {
-        writeToAllReplicas(pending.key, pending.value);
+        writeToAllReplicas(pending.key, pending.value, pending.metadata);
         versionVector.merge(pending.metadata.versionVector());
         log.info("{} applied replicated write: key={}, from={}, applied to {} local replicas, metadata={}",
                 name, pending.key, pending.metadata.origin(), replicas.size(), pending.metadata);
         changeSink.tryEmitNext(new ApplyEvent(pending.key, pending.metadata, ApplyType.REPLICA_APPLIED));
     }
 
-    private void writeToAllReplicas(String key, String value) {
+    private void applyLocalNow(PendingLocalWrite pending) {
+        writeToAllReplicas(pending.key, pending.value, pending.metadata);
+        log.info("{} applied local write: key={}, applied to {} local replicas, metadata={}",
+                name, pending.key, replicas.size(), pending.metadata);
+    }
+
+    private void writeToAllReplicas(String key, String value, CausalMetadata metadata) {
         for (KeyValueStore store : replicas) {
-            store.put(key, value);
+            store.put(key, value, metadata);
         }
     }
 
     private boolean canApply(CausalMetadata metadata) {
+        if (!dependenciesSatisfied(metadata)) {
+            return false;
+        }
         Map<String, Integer> incoming = metadata.versionVector().snapshot();
         Map<String, Integer> local = versionVector.snapshot();
         String origin = metadata.origin();
@@ -149,6 +199,9 @@ public class DataCenter implements CausalStoreNode {
     private record PendingReplication(String key, String value, CausalMetadata metadata) {
     }
 
+    private record PendingLocalWrite(String key, String value, CausalMetadata metadata) {
+    }
+
     public Flux<ApplyEvent> changes() {
         return changeSink.asFlux();
     }
@@ -156,4 +209,34 @@ public class DataCenter implements CausalStoreNode {
     public enum ApplyType { LOCAL_WRITE, REPLICA_APPLIED }
 
     public record ApplyEvent(String key, CausalMetadata metadata, ApplyType type) {}
+
+    private boolean dependenciesSatisfied(CausalMetadata metadata) {
+        if (metadata == null) return true;
+        return hasKeys(metadata.dependencies());
+    }
+
+    private boolean hasKeys(Map<String, VersionVector> dependencies) {
+        if (dependencies == null || dependencies.isEmpty()) {
+            return true;
+        }
+        for (Map.Entry<String, VersionVector> entry : dependencies.entrySet()) {
+            if (!hasKeyWithVersion(entry.getKey(), entry.getValue())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasKeyWithVersion(String key, VersionVector required) {
+        if (key == null || required == null) {
+            return false;
+        }
+        for (KeyValueStore store : replicas) {
+            if (store.hasVersionAtLeast(key, required)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 
 public class LinearizableClientSession {
     private static final Logger log = LoggerFactory.getLogger(LinearizableClientSession.class);
@@ -31,7 +32,7 @@ public class LinearizableClientSession {
 
     public void performLinearWrite(String key, String value) {
         log.debug("{} performing linearizable write at {}", clientId, leader.getName());
-        CausalMetadata metadata = leader.applyWrite(key, value);
+        CausalMetadata metadata = leader.applyWrite(key, value, new VersionVector(), Map.of());
         metricsCollector.recordWrite(leader.getName());
         replicationManager.replicateSync(key, value, leader, metadata);
     }

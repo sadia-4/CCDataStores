@@ -2,6 +2,7 @@ package causalstore.client;
 
 import causalstore.core.CausalMetadata;
 import causalstore.core.CausalReadPolicy;
+import causalstore.core.ReadResult;
 import causalstore.core.VersionVector;
 import causalstore.datacenter.DataCenter;
 import causalstore.datacenter.ReplicationManager;
@@ -10,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -22,6 +25,7 @@ public class ClientSession {
     private final ReplicationManager replicationManager;
     private final MetricsCollector metricsCollector;
     private final VersionVector dependencyVector = new VersionVector();
+    private final Map<String, VersionVector> dependencyVersions = new LinkedHashMap<>();
 
     public ClientSession(String clientId,
                          Supplier<DataCenter> dataCenterSupplier,
@@ -36,23 +40,29 @@ public class ClientSession {
     public void performWrite(String key, String value) {
         DataCenter dc = dataCenterSupplier.get();
         log.info("{} performing write at {}", clientId, dc.getName());
-        CausalMetadata metadata = dc.applyWrite(key, value);
+        Map<String, VersionVector> dependencies = dependencyMetadataFor(key);
+        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies);
         metricsCollector.recordWrite(dc.getName());
-        
+
         dependencyVector.merge(metadata.versionVector());
+        recordSeenKey(key, metadata);
         // print dependency vector after merge
         log.info("{} updated dependency vector to {}", clientId, dependencyVector);
+        log.info("{} dependencies for {} -> {}", clientId, key, metadata.dependencies());
         replicationManager.replicate(key, value, dc, metadata);
     }
 
     public CausalMetadata performWriteWithMetadata(String key, String value) {
         DataCenter dc = dataCenterSupplier.get();
         log.info("{} performing write (with metadata) at {}", clientId, dc.getName());
-        CausalMetadata metadata = dc.applyWrite(key, value);
+        Map<String, VersionVector> dependencies = dependencyMetadataFor(key);
+        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies);
         metricsCollector.recordWrite(dc.getName());
 
         dependencyVector.merge(metadata.versionVector());
+        recordSeenKey(key, metadata);
         log.info("{} updated dependency vector to {}", clientId, dependencyVector);
+        log.info("{} dependencies for {} -> {}", clientId, key, metadata.dependencies());
         replicationManager.replicate(key, value, dc, metadata);
         return metadata;
     }
@@ -63,8 +73,11 @@ public class ClientSession {
         if (policy == CausalReadPolicy.CAUSAL) {
             waitForDependencies(dc);
         }
-        String value = dc.read(key);
+        ReadResult readResult = dc.readWithMetadata(key);
+        String value = readResult.value();
+        CausalMetadata metadata = readResult.metadata();
         dependencyVector.merge(dc.versionVector());
+        recordSeenKey(key, metadata);
         Duration latency = Duration.ofNanos(System.nanoTime() - start);
         metricsCollector.recordRead(policy.name(), latency);
         log.info("{} {} read at {}: key={}, value={}", clientId, policy, dc.getName(), key, value);
@@ -73,6 +86,51 @@ public class ClientSession {
 
     public void resetDependencies() {
         dependencyVector.clear();
+        dependencyVersions.clear();
+    }
+
+    /** Manually register that {@code key} has the given version for future dependencies. */
+    public void addDependency(String key, VersionVector versionVector) {
+        if (key == null || versionVector == null) return;
+        dependencyVersions.put(key, versionVector.copy());
+    }
+
+    /** Declare that the write depends on everything embedded in {@code metadata}. */
+    public void addDependency(CausalMetadata metadata) {
+        if (metadata == null) return;
+        String metaKey = metadata.key();
+        if (metaKey != null) {
+            dependencyVersions.put(metaKey, metadata.versionVector());
+        }
+        metadata.dependencies().forEach((key, vector) -> dependencyVersions.put(key, vector.copy()));
+    }
+
+    /** Merge dependency metadata manually; useful when you have metadata from another client. */
+    public void mergeDependencyMetadata(CausalMetadata metadata) {
+        if (metadata == null) return;
+        addDependency(metadata);
+    }
+
+    private void recordSeenKey(String key, CausalMetadata metadata) {
+        if (metadata == null) return;
+        String observedKey = metadata.key() != null ? metadata.key() : key;
+        if (observedKey != null) {
+            dependencyVersions.put(observedKey, metadata.versionVector());
+        }
+        metadata.dependencies().forEach((depKey, vector) -> dependencyVersions.put(depKey, vector.copy()));
+    }
+
+    private Map<String, VersionVector> dependencyMetadataFor(String key) {
+        if (dependencyVersions.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, VersionVector> dependencies = new LinkedHashMap<>();
+        for (Map.Entry<String, VersionVector> entry : dependencyVersions.entrySet()) {
+            if (!entry.getKey().equals(key)) {
+                dependencies.put(entry.getKey(), entry.getValue().copy());
+            }
+        }
+        return dependencies;
     }
 
     private void waitForDependencies(DataCenter dc) {

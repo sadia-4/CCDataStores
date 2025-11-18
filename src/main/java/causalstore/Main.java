@@ -2,6 +2,7 @@ package causalstore;
 
 import causalstore.client.ClientSession;
 import causalstore.client.LinearizableClientSession;
+import causalstore.core.CausalMetadata;
 import causalstore.core.CausalReadPolicy;
 import causalstore.datacenter.DataCenter;
 import causalstore.datacenter.ReplicationManager;
@@ -82,9 +83,9 @@ public class Main {
 
     MetricsCollector metricsCollector = new MetricsCollector();
     List<DataCenter> datacenters = List.of(
-            new DataCenter("DC-A", 5),
-            new DataCenter("DC-B", 10000),
-            new DataCenter("DC-C", 15)
+            new DataCenter("DC-0", 5),
+            new DataCenter("DC-1", 100),
+            new DataCenter("DC-2", 15)
     );
 
     ReplicationManager replicationManager = new ReplicationManager(
@@ -96,28 +97,28 @@ public class Main {
 
     // Assignments
     Map<String, DataCenter> manual = Map.of(
-            "WriterA", datacenters.get(0),
-            "WriterC", datacenters.get(1),
-            "ReaderC", datacenters.get(1),
-            "ReaderB", datacenters.get(2)
+            "Writer1", datacenters.get(1),
+            "Writer2", datacenters.get(0),
+            " Reader1", datacenters.get(1),
+            "Reader2", datacenters.get(2)
     );
 
     // Sessions
-    ClientSession writerA = new ClientSession("WriterA", () -> manual.get("WriterA"), replicationManager, metricsCollector);
-    ClientSession writerC = new ClientSession("WriterC", () -> manual.get("WriterC"), replicationManager, metricsCollector);
-    ClientSession readerB = new ClientSession("ReaderB", () -> manual.get("ReaderB"), replicationManager, metricsCollector);
+    ClientSession Writer1 = new ClientSession("Writer1", () -> manual.get("Writer1"), replicationManager, metricsCollector);
+    ClientSession Writer2 = new ClientSession("Writer2", () -> manual.get("Writer2"), replicationManager, metricsCollector);
+    ClientSession Reader2 = new ClientSession("Reader2", () -> manual.get("Reader2"), replicationManager, metricsCollector);
    
-    ClientSession readerC = new ClientSession("ReaderC", () -> manual.get("ReaderC"), replicationManager, metricsCollector);
+    ClientSession  Reader1 = new ClientSession(" Reader1", () -> manual.get(" Reader1"), replicationManager, metricsCollector);
     LinearizableClientSession linearReader = new LinearizableClientSession("Linearizable", datacenters.get(1), replicationManager, metricsCollector);
 
     // -----------------------------------------------------
     //  EXP 1: Local read latency (Eventual)
     // -----------------------------------------------------
-    // writerA.performWrite("k1", "alpha");
+    // Writer1.performWrite("k1", "alpha");
     // Thread.sleep(100);
 
     // long t1 = System.nanoTime();
-    // String v1 = readerC.read("k1", CausalReadPolicy.EVENTUAL);
+    // String v1 =  Reader1.read("k1", CausalReadPolicy.EVENTUAL);
     // long lat1 = Duration.ofNanos(System.nanoTime() - t1).toMillis();
 
     // csv.log("exp1_local_eventual", "read", "eventual", "DC-C", lat1, v1);
@@ -126,32 +127,45 @@ public class Main {
     // -----------------------------------------------------
     //  EXP 3: k2 depends on k1 (causal dependency)
     // -----------------------------------------------------
-    writerA.performWriteWithMetadata("k1", "alpha");
-    Thread.sleep(150);
-    readerB.read("k1", CausalReadPolicy.EVENTUAL); // now readerB's dependency vector includes k1
-
-    writerA.performWrite("k2", "beta");
-    Thread.sleep(50);
+    CausalMetadata metaK1 = Writer1.performWriteWithMetadata("k1", "alpha");
+    
+   Writer2.addDependency("k1", metaK1.versionVector());
+    
+    Writer2.performWrite("k2", "beta");
+ Thread.sleep(30);
     long t2 = System.nanoTime();
-    String v2 = readerB.read("k2", CausalReadPolicy.EVENTUAL);
+    String v2 = Reader2.read("k2", CausalReadPolicy.EVENTUAL);
     long lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
     csv.log("exp3_eventual-before", "read", "eventual", "DC-B", lat2, v2);
-
+    
     t2 = System.nanoTime();
-    v2 = readerB.read("k2", CausalReadPolicy.CAUSAL);
+    v2 = Reader2.read("k2", CausalReadPolicy.CAUSAL);
     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
     csv.log("exp3_causal", "read", "causal", "DC-B", lat2, v2);
 
     t2 = System.nanoTime();
-    v2 = readerB.read("k2", CausalReadPolicy.EVENTUAL);
+    v2 = Reader2.read("k2", CausalReadPolicy.EVENTUAL);
     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
     csv.log("exp3_eventual-after", "read", "eventual", "DC-B", lat2, v2);
 
+    t2 = System.nanoTime();
+    v2 = Reader2.read("k1", CausalReadPolicy.CAUSAL);
+    lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+    csv.log("exp3_causal", "read", "causal", "DC-B", lat2, v2);
 
+    t2 = System.nanoTime();
+    v2 = Reader2.read("k1", CausalReadPolicy.EVENTUAL);
+    lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+    csv.log("exp3_eventual-after", "read", "eventual", "DC-B", lat2, v2);
+ t2 = System.nanoTime();
+     v2 = Reader1.read("k2", CausalReadPolicy.EVENTUAL);
+     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+    csv.log("exp3_eventual-before", "read", "eventual", "DC-B", lat2, v2);
+    
     // // -----------------------------------------------------
     // //  EXP 3: Linearizable read latency
     // // -----------------------------------------------------
-    // writerC.performWrite("k3", "x1");
+    // Writer2.performWrite("k3", "x1");
     // Thread.sleep(50);
 
     // long t3 = System.nanoTime();
@@ -166,10 +180,10 @@ public class Main {
     // // -----------------------------------------------------
     // for (int i = 0; i < 10; i++) {
     //     String key = "load" + i;
-    //     writerA.performWrite(key, "v" + i);
+    //     Writer1.performWrite(key, "v" + i);
 
     //     long start = System.nanoTime();
-    //     String val = readerC.read(key, CausalReadPolicy.EVENTUAL);
+    //     String val =  Reader1.read(key, CausalReadPolicy.EVENTUAL);
     //     long latency = Duration.ofNanos(System.nanoTime() - start).toMillis();
     //     csv.log("exp4_load_eventual", "read", "eventual", "DC-C", latency, val);
 
@@ -180,7 +194,7 @@ public class Main {
     //     }
 
     //     long startC = System.nanoTime();
-    //     String causalVal = readerC.read(key, CausalReadPolicy.CAUSAL);
+    //     String causalVal =  Reader1.read(key, CausalReadPolicy.CAUSAL);
     //     long causalLatency = Duration.ofNanos(System.nanoTime() - startC).toMillis();
     //     csv.log("exp4_load_causal", "read", "causal", "DC-C", causalLatency, causalVal);
     // }
