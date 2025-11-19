@@ -2,6 +2,7 @@ package causalstore.datacenter;
 
 import causalstore.core.CausalMetadata;
 import causalstore.core.CausalStoreNode;
+import causalstore.core.GlobalVersionClock;
 import causalstore.core.KeyValueStore;
 import causalstore.core.ReadResult;
 import causalstore.core.VersionVector;
@@ -49,13 +50,14 @@ public class DataCenter implements CausalStoreNode {
     @Override
     public CausalMetadata applyWrite(String key, String value,
                                      VersionVector dependencies,
-                                     Map<String, VersionVector> dependencyKeys,
+                                     Map<String, Long> dependencyKeys,
                                      Duration replicationDelayOverride) {
         if (dependencies != null) {
             versionVector.merge(dependencies);
         }
         versionVector.increment(name);
-        CausalMetadata metadata = new CausalMetadata(name, key, value, versionVector, dependencyKeys, replicationDelayOverride);
+        CausalMetadata metadata = new CausalMetadata(name, key, value, versionVector,
+                dependencyKeys, replicationDelayOverride, GlobalVersionClock.next());
         PendingLocalWrite pending = new PendingLocalWrite(key, value, metadata);
         if (dependenciesSatisfied(metadata)) {
             applyLocalNow(pending);
@@ -85,6 +87,17 @@ public class DataCenter implements CausalStoreNode {
     public ReadResult readWithMetadata(String key) {
         int idx = Math.floorMod(readIndex.getAndIncrement(), replicas.size());
         KeyValueStore.Entry entry = replicas.get(idx).get(key);
+        if (entry == null) {
+            return new ReadResult(null, null);
+        }
+        return new ReadResult(entry.value(), entry.metadata());
+    }
+
+    public ReadResult readReplicaWithMetadata(String key, int replicaIndex) {
+        if (replicaIndex < 0 || replicaIndex >= replicas.size()) {
+            throw new IllegalArgumentException("replicaIndex out of range: " + replicaIndex);
+        }
+        KeyValueStore.Entry entry = replicas.get(replicaIndex).get(key);
         if (entry == null) {
             return new ReadResult(null, null);
         }
@@ -217,24 +230,24 @@ public class DataCenter implements CausalStoreNode {
         return hasKeys(metadata.dependencies());
     }
 
-    private boolean hasKeys(Map<String, VersionVector> dependencies) {
+    private boolean hasKeys(Map<String, Long> dependencies) {
         if (dependencies == null || dependencies.isEmpty()) {
             return true;
         }
-        for (Map.Entry<String, VersionVector> entry : dependencies.entrySet()) {
-            if (!hasKeyWithVersion(entry.getKey(), entry.getValue())) {
+        for (Map.Entry<String, Long> entry : dependencies.entrySet()) {
+            if (!hasKeyWithSequence(entry.getKey(), entry.getValue())) {
                 return false;
             }
         }
         return true;
     }
 
-    private boolean hasKeyWithVersion(String key, VersionVector required) {
-        if (key == null || required == null) {
+    private boolean hasKeyWithSequence(String key, long required) {
+        if (key == null) {
             return false;
         }
         for (KeyValueStore store : replicas) {
-            if (store.hasVersionAtLeast(key, required)) {
+            if (store.hasSequenceAtLeast(key, required)) {
                 return true;
             }
         }

@@ -6,7 +6,7 @@ import java.util.Map;
 public interface CausalStoreNode {
     CausalMetadata applyWrite(String key, String value,
                               VersionVector dependencies,
-                              Map<String, VersionVector> dependencyKeys,
+                              Map<String, Long> dependencyKeys,
                               Duration replicationDelayOverride);
 
     void applyReplica(String key, String value, CausalMetadata metadata);

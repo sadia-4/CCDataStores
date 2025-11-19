@@ -14,7 +14,7 @@ public class NetworkSimulator {
     }
 
     public Mono<Duration> delayFor(DataCenter source, DataCenter target) {
-        long jitter = ThreadLocalRandom.current().nextLong(0, 50);
+        long jitter = ThreadLocalRandom.current().nextLong(0,100);
         Duration baseNetwork = baseDelay.plusMillis(Math.abs(source.getNetworkDelayMs() - target.getNetworkDelayMs()));
         Duration totalDelay = baseNetwork.plusMillis(jitter);
         return Mono.delay(totalDelay).map(ignore -> totalDelay);

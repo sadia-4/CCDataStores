@@ -2,6 +2,7 @@ package causalstore.client;
 
 import causalstore.core.CausalMetadata;
 import causalstore.core.CausalReadPolicy;
+import causalstore.core.ReadResult;
 import causalstore.core.VersionVector;
 import causalstore.datacenter.DataCenter;
 import causalstore.datacenter.ReplicationManager;
@@ -19,15 +20,25 @@ public class LinearizableClientSession {
     private final DataCenter leader;
     private final ReplicationManager replicationManager;
     private final MetricsCollector metricsCollector;
+    private final int replicaIndex;
 
     public LinearizableClientSession(String clientId,
                                      DataCenter leader,
+                                     ReplicationManager replicationManager,
+                                     MetricsCollector metricsCollector) {
+        this(clientId, leader, 0, replicationManager, metricsCollector);
+    }
+
+    public LinearizableClientSession(String clientId,
+                                     DataCenter leader,
+                                     int replicaIndex,
                                      ReplicationManager replicationManager,
                                      MetricsCollector metricsCollector) {
         this.clientId = clientId;
         this.leader = leader;
         this.replicationManager = replicationManager;
         this.metricsCollector = metricsCollector;
+        this.replicaIndex = Math.floorMod(replicaIndex, leader.replicaCount());
     }
 
     public void performLinearWrite(String key, String value) {
@@ -40,7 +51,8 @@ public class LinearizableClientSession {
     public String readLinearizable(String key) {
         long start = System.nanoTime();
         waitUntilAllReplicasCaughtUp();
-        String value = leader.read(key);
+        ReadResult result = leader.readReplicaWithMetadata(key, replicaIndex);
+        String value = result.value();
         metricsCollector.recordRead(CausalReadPolicy.LINEARIZABLE.name(), Duration.ofNanos(System.nanoTime() - start));
         return value;
     }

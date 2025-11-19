@@ -36,11 +36,14 @@ public class KeyValueStore {
         return entry != null && entry.value != null;
     }
 
-    public boolean hasVersionAtLeast(String key, VersionVector required) {
+    public boolean hasSequenceAtLeast(String key, long required) {
+        if (required <= 0) {
+            return true;
+        }
         Entry entry = store.get(key);
-        if (entry == null || entry.metadata == null || required == null) {
+        if (entry == null || entry.metadata == null) {
             return false;
         }
-        return entry.metadata.versionVector().dominates(required);
+        return entry.metadata.globalSequence() >= required;
     }
 }

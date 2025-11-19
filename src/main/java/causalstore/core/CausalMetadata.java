@@ -1,6 +1,7 @@
 package causalstore.core;
 
 import java.time.Duration;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -13,15 +14,17 @@ public final class CausalMetadata {
     private final String value;
     private final VersionVector versionVector;
     private final Instant timestamp;
-    private final Map<String, VersionVector> dependencies;
+    private final Map<String, Long> dependencies;
     private final Duration replicationDelayOverride;
+    private final long globalSequence;
 
     public CausalMetadata(String origin,
                           String key,
                           String value,
                           VersionVector sourceVector,
-                          Map<String, VersionVector> dependencies,
-                          Duration replicationDelayOverride) {
+                          Map<String, Long> dependencies,
+                          Duration replicationDelayOverride,
+                          long globalSequence) {
         this.origin = Objects.requireNonNull(origin, "origin");
         this.key = key;
         this.value = value;
@@ -30,11 +33,12 @@ public final class CausalMetadata {
         if (dependencies == null || dependencies.isEmpty()) {
             this.dependencies = Collections.emptyMap();
         } else {
-            Map<String, VersionVector> working = new LinkedHashMap<>();
-            dependencies.forEach((k, vector) -> working.put(k, vector.copy()));
+            Map<String, Long> working = new LinkedHashMap<>();
+            working.putAll(dependencies);
             this.dependencies = Collections.unmodifiableMap(working);
         }
         this.replicationDelayOverride = replicationDelayOverride;
+        this.globalSequence = globalSequence;
     }
 
     public String origin() {
@@ -57,12 +61,16 @@ public final class CausalMetadata {
         return timestamp;
     }
 
-    public Map<String, VersionVector> dependencies() {
+    public Map<String, Long> dependencies() {
         return dependencies;
     }
 
     public Duration replicationDelayOverride() {
         return replicationDelayOverride;
+    }
+
+    public long globalSequence() {
+        return globalSequence;
     }
 
     @Override
@@ -72,6 +80,7 @@ public final class CausalMetadata {
                 ", key='" + key + '\'' +
                 ", vector=" + versionVector +
                 ", dependencies=" + dependencies +
+                ", globalSequence=" + globalSequence +
                 ", timestamp=" + timestamp +
                 '}';
     }
