@@ -1,4 +1,4 @@
-gradle.properties
+
 build/
 metrics-output/
 *.hprof
