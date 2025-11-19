@@ -4,6 +4,6 @@ exp1_causal,reader2,causal,DC-2,0,key-x1=val1
 exp1_causal,reader1,causal,DC-1,0,key-X2=null
 exp1_causal,reader1,causal,DC-1,0,key-x1=null
 exp2_causal,read,causal,DC-2,0,key-k2=null
-exp2_linearizable,read,linearizable,DC-2,749,key-k2=beta
+exp2_linearizable,read,linearizable,DC-2,757,key-k2=beta
 exp1_causal,reader1,causal,DC-1,0,key-X2=beta
 exp1_causal,reader1,causal,DC-1,0,key-x1=val1
