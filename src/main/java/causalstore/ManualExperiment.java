@@ -2,6 +2,7 @@ package causalstore;
 
 import causalstore.client.ClientSession;
 import causalstore.client.LinearizableClientSession;
+import causalstore.core.CausalMetadata;
 import causalstore.core.CausalReadPolicy;
 import causalstore.datacenter.DataCenter;
 import causalstore.datacenter.ReplicationManager;
@@ -50,7 +51,7 @@ public class ManualExperiment {
 
         String key = "post-42";
         String value = "value-" + ThreadLocalRandom.current().nextInt(1, 100);
-        writer.performWrite(key, value);
+        CausalMetadata meta = writer.performWrite(key, value);
         log.info("Writer stored {} -> {}", key, value);
 
         Thread.sleep(100);

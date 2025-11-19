@@ -98,7 +98,7 @@ public class Main {
     // Assignments
     Map<String, DataCenter> manual = Map.of(
             "Writer1", datacenters.get(1),
-            "Writer2", datacenters.get(0),
+            "Writer2", datacenters.get(2),
             " Reader1", datacenters.get(1),
             "Reader2", datacenters.get(2)
     );
@@ -132,7 +132,7 @@ public class Main {
    Writer2.addDependency("k1", metaK1.versionVector());
     
     Writer2.performWrite("k2", "beta");
- Thread.sleep(30);
+ Thread.sleep(300);
     long t2 = System.nanoTime();
     String v2 = Reader2.read("k2", CausalReadPolicy.EVENTUAL);
     long lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
@@ -163,8 +163,43 @@ public class Main {
     csv.log("exp3_eventual-before", "read", "eventual", "DC-B", lat2, v2);
     
     // // -----------------------------------------------------
-    // //  EXP 3: Linearizable read latency
+    // //  EXP 4: Local read vs causal read
     // // -----------------------------------------------------
+//     Writer2.setNextReplicationDelay(Duration.ofMillis(10000));
+//      CausalMetadata metaX1 = Writer2.performWrite("x1", "val1");
+    
+
+    
+//       Writer2.addDependency("x1", metaX1.versionVector());
+//     Writer2.setNextReplicationDelay(Duration.ZERO);
+//     Writer2.performWrite("x2", "beta");
+//  Thread.sleep(309);
+//    long  t2 = System.nanoTime();
+//     String v2 = Reader2.read("x2", CausalReadPolicy.EVENTUAL);
+//   long  lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+//     csv.log("exp3_eventual-before", "read", "eventual", "DC-B", lat2, v2);
+//     Thread.sleep(200);
+//     t2 = System.nanoTime();
+//     v2 = Reader2.read("x2", CausalReadPolicy.CAUSAL);
+//     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+//     csv.log("exp3_causal", "read", "causal", "DC-B", lat2, v2);
+
+//     t2 = System.nanoTime();
+//     v2 = Reader2.read("x1", CausalReadPolicy.EVENTUAL);
+//     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+//     csv.log("exp3_eventual-after", "read", "eventual", "DC-B", lat2, v2);
+
+//     t2 = System.nanoTime();
+//     v2 = Reader1.read("x1", CausalReadPolicy.CAUSAL);
+//     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+//     csv.log("exp3_causal", "read", "causal", "DC-B", lat2, v2);
+
+//     t2 = System.nanoTime();
+//     v2 = Reader1.read("x1", CausalReadPolicy.EVENTUAL);
+//     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
+//     csv.log("exp3_eventual-after", "read", "eventual", "DC-B", lat2, v2);
+//     csv.log("exp4_load_causal", "read", "causal", "DC-C", causalLatency, causalVal);
+ 
     // Writer2.performWrite("k3", "x1");
     // Thread.sleep(50);
 

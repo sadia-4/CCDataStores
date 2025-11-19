@@ -26,6 +26,7 @@ public class ClientSession {
     private final MetricsCollector metricsCollector;
     private final VersionVector dependencyVector = new VersionVector();
     private final Map<String, VersionVector> dependencyVersions = new LinkedHashMap<>();
+    private Duration replicationDelayOverride;
 
     public ClientSession(String clientId,
                          Supplier<DataCenter> dataCenterSupplier,
@@ -37,11 +38,12 @@ public class ClientSession {
         this.metricsCollector = Objects.requireNonNull(metricsCollector, "metricsCollector");
     }
 
-    public void performWrite(String key, String value) {
+    public CausalMetadata performWrite(String key, String value) {
         DataCenter dc = dataCenterSupplier.get();
         log.info("{} performing write at {}", clientId, dc.getName());
         Map<String, VersionVector> dependencies = dependencyMetadataFor(key);
-        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies);
+        Duration delayOverride = consumeReplicationDelayOverride();
+        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies, delayOverride);
         metricsCollector.recordWrite(dc.getName());
 
         dependencyVector.merge(metadata.versionVector());
@@ -50,13 +52,15 @@ public class ClientSession {
         log.info("{} updated dependency vector to {}", clientId, dependencyVector);
         log.info("{} dependencies for {} -> {}", clientId, key, metadata.dependencies());
         replicationManager.replicate(key, value, dc, metadata);
+        return metadata;
     }
 
     public CausalMetadata performWriteWithMetadata(String key, String value) {
         DataCenter dc = dataCenterSupplier.get();
         log.info("{} performing write (with metadata) at {}", clientId, dc.getName());
         Map<String, VersionVector> dependencies = dependencyMetadataFor(key);
-        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies);
+        Duration delayOverride = consumeReplicationDelayOverride();
+        CausalMetadata metadata = dc.applyWrite(key, value, dependencyVector.copy(), dependencies, delayOverride);
         metricsCollector.recordWrite(dc.getName());
 
         dependencyVector.merge(metadata.versionVector());
@@ -111,6 +115,10 @@ public class ClientSession {
         addDependency(metadata);
     }
 
+    public void setNextReplicationDelay(Duration delay) {
+        this.replicationDelayOverride = delay;
+    }
+
     private void recordSeenKey(String key, CausalMetadata metadata) {
         if (metadata == null) return;
         String observedKey = metadata.key() != null ? metadata.key() : key;
@@ -131,6 +139,12 @@ public class ClientSession {
             }
         }
         return dependencies;
+    }
+
+    private Duration consumeReplicationDelayOverride() {
+        Duration override = replicationDelayOverride;
+        replicationDelayOverride = null;
+        return override;
     }
 
     private void waitForDependencies(DataCenter dc) {

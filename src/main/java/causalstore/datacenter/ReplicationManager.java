@@ -4,6 +4,7 @@ import causalstore.core.CausalMetadata;
 import causalstore.metrics.MetricsCollector;
 import causalstore.network.NetworkSimulator;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ public class ReplicationManager {
     public void replicateSync(String key, String value, DataCenter source, CausalMetadata metadata) {
         for (DataCenter target : dataCenters) {
             if (target == source) continue;
-            Duration delay = networkSimulator.delayFor(source, target).block();
+            Duration delay = computeDelay(source, target, metadata).block();
             target.applyReplica(key, value, metadata);
             metricsCollector.recordReplication(target.getName(), delay);
             log.debug("Replicated (sync) key={} from {} to {} after {}ms", key, source.getName(), target.getName(), delay.toMillis());
@@ -72,7 +73,7 @@ public class ReplicationManager {
     private void dispatch(ReplicationRequest request) {
         Flux.fromIterable(dataCenters)
                 .filter(target -> target != request.source)
-                .flatMap(target -> networkSimulator.delayFor(request.source, target)
+                .flatMap(target -> computeDelay(request.source, target, request.metadata)
                         .doOnNext(delay -> {
                             target.applyReplica(request.key, request.value, request.metadata);
                             metricsCollector.recordReplication(target.getName(), delay);
@@ -80,6 +81,14 @@ public class ReplicationManager {
                         }))
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe();
+    }
+
+    private Mono<Duration> computeDelay(DataCenter source, DataCenter target, CausalMetadata metadata) {
+        Duration override = metadata.replicationDelayOverride();
+        if (override != null) {
+            return Mono.delay(override).map(ignore -> override);
+        }
+        return networkSimulator.delayFor(source, target);
     }
 
     private record ReplicationRequest(String key, String value,

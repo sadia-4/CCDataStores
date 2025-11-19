@@ -32,7 +32,7 @@ public class LinearizableClientSession {
 
     public void performLinearWrite(String key, String value) {
         log.debug("{} performing linearizable write at {}", clientId, leader.getName());
-        CausalMetadata metadata = leader.applyWrite(key, value, new VersionVector(), Map.of());
+        CausalMetadata metadata = leader.applyWrite(key, value, new VersionVector(), Map.of(), null);
         metricsCollector.recordWrite(leader.getName());
         replicationManager.replicateSync(key, value, leader, metadata);
     }

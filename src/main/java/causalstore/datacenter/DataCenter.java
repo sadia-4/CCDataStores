@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -48,14 +49,15 @@ public class DataCenter implements CausalStoreNode {
     @Override
     public CausalMetadata applyWrite(String key, String value,
                                      VersionVector dependencies,
-                                     Map<String, VersionVector> dependencyKeys) {
+                                     Map<String, VersionVector> dependencyKeys,
+                                     Duration replicationDelayOverride) {
         if (dependencies != null) {
             versionVector.merge(dependencies);
         }
         versionVector.increment(name);
-        CausalMetadata metadata = new CausalMetadata(name, key, value, versionVector, dependencyKeys);
+        CausalMetadata metadata = new CausalMetadata(name, key, value, versionVector, dependencyKeys, replicationDelayOverride);
         PendingLocalWrite pending = new PendingLocalWrite(key, value, metadata);
-        if (canApply(metadata)) {
+        if (dependenciesSatisfied(metadata)) {
             applyLocalNow(pending);
         } else {
             pendingLocalWrites.add(pending);

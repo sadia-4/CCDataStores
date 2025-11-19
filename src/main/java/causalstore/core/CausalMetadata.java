@@ -1,5 +1,6 @@
 package causalstore.core;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -13,12 +14,14 @@ public final class CausalMetadata {
     private final VersionVector versionVector;
     private final Instant timestamp;
     private final Map<String, VersionVector> dependencies;
+    private final Duration replicationDelayOverride;
 
     public CausalMetadata(String origin,
                           String key,
                           String value,
                           VersionVector sourceVector,
-                          Map<String, VersionVector> dependencies) {
+                          Map<String, VersionVector> dependencies,
+                          Duration replicationDelayOverride) {
         this.origin = Objects.requireNonNull(origin, "origin");
         this.key = key;
         this.value = value;
@@ -31,6 +34,7 @@ public final class CausalMetadata {
             dependencies.forEach((k, vector) -> working.put(k, vector.copy()));
             this.dependencies = Collections.unmodifiableMap(working);
         }
+        this.replicationDelayOverride = replicationDelayOverride;
     }
 
     public String origin() {
@@ -55,6 +59,10 @@ public final class CausalMetadata {
 
     public Map<String, VersionVector> dependencies() {
         return dependencies;
+    }
+
+    public Duration replicationDelayOverride() {
+        return replicationDelayOverride;
     }
 
     @Override
