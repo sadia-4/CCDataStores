@@ -51,7 +51,7 @@ public class Main {
     ClientSession Reader2 = new ClientSession("Reader2", () -> manual.get("Reader2"), replicationManager, metricsCollector);
    
     ClientSession  Reader1 = new ClientSession(" Reader1", () -> manual.get(" Reader1"), replicationManager, metricsCollector);
-    LinearizableClientSession linearReader = new LinearizableClientSession("Linearizable", datacenters.get(2), 1, replicationManager, metricsCollector);
+    LinearizableClientSession linearReader = new LinearizableClientSession("Linearizable", datacenters.get(1), 1, replicationManager, metricsCollector);
 
     // -----------------------------------------------------
     //  EXP 1: k2 depends on k1 (causal dependency)
@@ -86,26 +86,23 @@ public class Main {
     CausalMetadata metaK1 = Writer1.performWrite("k1", "alpha");
     Writer1.addDependency("k1", metaK1.globalSequence());
     Writer1.performWrite("k2", "beta");
-    Thread.sleep(50);
     t2 = System.nanoTime();
-    v2 = Reader2.read("k2", CausalReadPolicy.CAUSAL);
+   v2 = Reader1.read("k2", CausalReadPolicy.CAUSAL);
     lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
-    csv.log("exp2_causal", "read", "causal", "DC-2", lat2, "key-k2=" + v2);
+    csv.log("exp2_causal", "reader1", "causal", "DC-1", lat2, "key-k2=" + v2);
 
-    t2 = System.nanoTime();
-    v2 = linearReader.readLinearizable("k2");
-    lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
-    csv.log("exp2_linearizable", "read", "linearizable", "DC-2", lat2, "key-k2=" + v2);
-    Writer2.performWrite("k3", "x1");
-    Thread.sleep(1000);
-    t2 = System.nanoTime();
-    v2 = Reader1.read("x2", CausalReadPolicy.CAUSAL);
-    lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
-    csv.log("exp1_causal", "reader1", "causal", "DC-1", lat2, "key-X2=" + v2);
-    t2 = System.nanoTime();
-    v2 = Reader1.read("x1", CausalReadPolicy.CAUSAL);
-    lat2 = Duration.ofNanos(System.nanoTime() - t2).toMillis();
-    csv.log("exp1_causal", "reader1", "causal", "DC-1", lat2, "key-x1=" + v2);
+   long t3 = System.nanoTime();
+   String v3 = linearReader.readLinearizable("k2");
+   long  lat3 = Duration.ofNanos(System.nanoTime() - t3).toMillis();
+
+   csv.log("exp2_causal", "linear read", "causal", "DC-1", lat3, "key-k2=" + v3);
+
+
+// t3 = System.nanoTime();
+//    v3 = linearReader2.readLinearizable("k3");
+//     lat3 = Duration.ofNanos(System.nanoTime() - t3).toMillis();
+
+//     csv.log("exp2_linearizable", "reader2", "linearizable", "DC-2", lat3, v3);
 
    
 }
